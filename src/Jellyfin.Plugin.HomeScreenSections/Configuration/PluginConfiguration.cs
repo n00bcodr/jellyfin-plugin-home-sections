@@ -6,6 +6,10 @@ namespace Jellyfin.Plugin.HomeScreenSections.Configuration
     {
         public bool Enabled { get; set; } = false;
 
+        public bool LazyLoadEnabled { get; set; } = false;
+
+        public int NumSectionsPerPage { get; set; } = 10;
+        
         public bool AllowUserOverride { get; set; } = true;
 
         public string? LibreTranslateUrl { get; set; } = "";
@@ -13,6 +17,8 @@ namespace Jellyfin.Plugin.HomeScreenSections.Configuration
         public string? LibreTranslateApiKey { get; set; } = "";
         
         public string? JellyseerrUrl { get; set; } = "";
+
+        public string? JellyseerrExternalUrl { get; set; } = "";
 
         public string? JellyseerrApiKey { get; set; } = "";
         
@@ -46,6 +52,12 @@ namespace Jellyfin.Plugin.HomeScreenSections.Configuration
         public int CacheTimeoutSeconds { get; set; } = 86400;
 
         public bool OverrideStreamyfinHome { get; set; } = false;
+
+        public int MaxImageCacheEntries { get; set; } = 10000;
+
+        public int MaxImageWidth { get; set; } = 600;
+
+        public int ImageJpegQuality { get; set; } = 85;
 
         public SectionSettings[] SectionSettings { get; set; } = Array.Empty<SectionSettings>();
     }
@@ -91,5 +103,8 @@ namespace Jellyfin.Plugin.HomeScreenSections.Configuration
         public string? Url { get; set; } = "";
         public int UpcomingTimeframeValue { get; set; }
         public TimeframeUnit UpcomingTimeframeUnit { get; set; }
+        public bool ConsiderCinemaRelease { get; set; } = false;
+        public bool ConsiderPhysicalRelease { get; set; } = false;
+        public bool ConsiderDigitalRelease { get; set; } = true;
     }   
 }

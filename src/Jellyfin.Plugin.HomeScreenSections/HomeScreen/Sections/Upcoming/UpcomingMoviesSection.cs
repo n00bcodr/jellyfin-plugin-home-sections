@@ -15,8 +15,8 @@ namespace Jellyfin.Plugin.HomeScreenSections.HomeScreen.Sections.Upcoming
         
         public override string? DisplayText { get; set; } = "Upcoming Movies";
 
-        public UpcomingMoviesSection(IUserManager userManager, IDtoService dtoService, ArrApiService arrApiService, ILogger<UpcomingMoviesSection> logger)
-            : base(userManager, dtoService, arrApiService, logger)
+        public UpcomingMoviesSection(IUserManager userManager, IDtoService dtoService, ArrApiService arrApiService, ImageCacheService imageCacheService, ILogger<UpcomingMoviesSection> logger)
+            : base(userManager, dtoService, arrApiService, imageCacheService, logger)
         {
         }
 
@@ -35,11 +35,34 @@ namespace Jellyfin.Plugin.HomeScreenSections.HomeScreen.Sections.Upcoming
             return ArrApiService.GetArrCalendarAsync<RadarrCalendarDto>(ArrServiceType.Radarr, startDate, endDate).GetAwaiter().GetResult() ?? [];
         }
 
+        private DateTime GetEarliestReleaseDate(RadarrCalendarDto item, PluginConfiguration config)
+        {
+            var candidates = new[]
+            {
+                config.Radarr.ConsiderCinemaRelease ? item.InCinemas : null,
+                config.Radarr.ConsiderPhysicalRelease ? item.PhysicalRelease : null,
+                config.Radarr.ConsiderDigitalRelease ? item.DigitalRelease : null
+            };
+            return candidates.Where(date => date.HasValue).Select(date => date!.Value).Min();
+        }
+
         protected override IOrderedEnumerable<RadarrCalendarDto> FilterAndSortItems(RadarrCalendarDto[] items)
         {
+            var config = HomeScreenSectionsPlugin.Instance.Configuration;
             return items
-                .Where(item => item.Monitored && !item.HasFile && item.DigitalRelease.HasValue)
-                .OrderBy(item => item.DigitalRelease);
+                .Where(item => 
+                {
+                    if (!item.Monitored || item.HasFile)
+                        return false;
+                    
+                    bool hasValidRelease = 
+                        (config.Radarr.ConsiderCinemaRelease && item.InCinemas.HasValue) ||
+                        (config.Radarr.ConsiderPhysicalRelease && item.PhysicalRelease.HasValue) ||
+                        (config.Radarr.ConsiderDigitalRelease && item.DigitalRelease.HasValue);
+                    
+                    return hasValidRelease;
+                })
+                .OrderBy(item => GetEarliestReleaseDate(item, config));
         }
 
         protected override string GetFallbackCoverUrl(RadarrCalendarDto missingItem)
@@ -49,7 +72,7 @@ namespace Jellyfin.Plugin.HomeScreenSections.HomeScreen.Sections.Upcoming
 
         protected override BaseItemDto CreateDto(RadarrCalendarDto calendarItem, PluginConfiguration config)
         {
-            DateTime releaseDate = calendarItem.DigitalRelease ?? DateTime.Now;
+            DateTime releaseDate = GetEarliestReleaseDate(calendarItem, config);
             string countdownText = CalculateCountdown(releaseDate, config);
 
             string yearInfo = calendarItem.Year > 0 ? $" ({calendarItem.Year})" : "";
@@ -57,13 +80,16 @@ namespace Jellyfin.Plugin.HomeScreenSections.HomeScreen.Sections.Upcoming
             ArrImageDto? posterImage = calendarItem.Images?.FirstOrDefault(img => 
                 string.Equals(img.CoverType, "poster", StringComparison.OrdinalIgnoreCase));
 
+            string sourceImageUrl = posterImage?.RemoteUrl ?? GetFallbackCoverUrl(calendarItem);
+            string cachedImageUrl = GetCachedImageUrl(sourceImageUrl);
+
             // Create provider IDs to store external image URL and metadata
             Dictionary<string, string> providerIds = new Dictionary<string, string>
             {
                 { "RadarrMovieId", calendarItem.Id.ToString() },
                 { "YearInfo", yearInfo },
                 { "FormattedDate", countdownText },
-                { "RadarrPoster", posterImage?.RemoteUrl ?? GetFallbackCoverUrl(calendarItem) }
+                { "RadarrPoster", cachedImageUrl }
             };
 
             return new BaseItemDto
@@ -71,7 +97,7 @@ namespace Jellyfin.Plugin.HomeScreenSections.HomeScreen.Sections.Upcoming
                 Id = Guid.NewGuid(),
                 Name = calendarItem.Title ?? "Unknown Movie",
                 Type = BaseItemKind.Movie,
-                PremiereDate = calendarItem.DigitalRelease,
+                PremiereDate = releaseDate,
                 ProductionYear = calendarItem.Year > 0 ? calendarItem.Year : null,
                 ProviderIds = providerIds,
                 UserData = new UserItemDataDto
@@ -87,9 +113,9 @@ namespace Jellyfin.Plugin.HomeScreenSections.HomeScreen.Sections.Upcoming
 
         protected override string GetSectionName() => "upcoming movies";
 
-        public override IHomeScreenSection CreateInstance(Guid? userId, IEnumerable<IHomeScreenSection>? otherInstances = null)
+        public override IEnumerable<IHomeScreenSection> CreateInstances(Guid? userId, int instanceCount)
         {
-            return new UpcomingMoviesSection(UserManager, DtoService, ArrApiService, (ILogger<UpcomingMoviesSection>)Logger)
+            yield return new UpcomingMoviesSection(UserManager, DtoService, ArrApiService, ImageCacheService, (ILogger<UpcomingMoviesSection>)Logger)
             {
                 DisplayText = DisplayText,
                 AdditionalData = AdditionalData,

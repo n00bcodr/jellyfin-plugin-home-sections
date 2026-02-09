@@ -8,11 +8,15 @@ namespace Jellyfin.Plugin.HomeScreenSections.Library
 {
     public interface IHomeScreenManager
     {
+        void RegisterBuiltInResultsDelegates();
+        
         void RegisterResultsDelegate<T>() where T : IHomeScreenSection;
 
         void RegisterResultsDelegate<T>(T handler) where T : IHomeScreenSection;
         
         IEnumerable<IHomeScreenSection> GetSectionTypes();
+        
+        IHomeScreenSection? GetSection(string sectionName);
 
         QueryResult<BaseItemDto> InvokeResultsDelegate(string key, HomeScreenSectionPayload payload, IQueryCollection queryCollection);
 
@@ -38,12 +42,31 @@ namespace Jellyfin.Plugin.HomeScreenSections.Library
         public string? AdditionalData { get; set; }
 
         public object? OriginalPayload { get; }
+
+        public TranslationMetadata? TranslationMetadata => null;
         
         public QueryResult<BaseItemDto> GetResults(HomeScreenSectionPayload payload, IQueryCollection queryCollection);
 
-        public IHomeScreenSection? CreateInstance(Guid? userId, IEnumerable<IHomeScreenSection>? otherInstances = null);
+        public IEnumerable<IHomeScreenSection> CreateInstances(Guid? userId, int instanceCount);
 
         public HomeScreenSectionInfo GetInfo();
+    }
+
+    public enum TranslationType
+    {
+        FullText,
+        Prefix,
+        Suffix,
+        Pattern
+    }
+
+    public class TranslationMetadata
+    {
+        public TranslationType Type { get; set; } = TranslationType.FullText;
+
+        public string? AdditionalContent { get; set; } = null;
+        
+        public bool TranslateAdditionalContent { get; set; } = false;
     }
 
     public class HomeScreenSectionInfo
@@ -71,6 +94,8 @@ namespace Jellyfin.Plugin.HomeScreenSections.Library
         public bool AllowViewModeChange { get; set; } = true;
 
         public bool AllowHideWatched { get; set; } = false;
+        
+        public int OrderIndex { get; set; }
     }
 
     public class ModularHomeUserSettings
@@ -78,6 +103,10 @@ namespace Jellyfin.Plugin.HomeScreenSections.Library
         public Guid UserId { get; set; }
 
         public List<string> EnabledSections { get; set; } = new List<string>();
+        
+        public List<string> LockedSections { get; set; } = new List<string>();
+        
+        public List<string> DefaultEnabledSections { get; set; } = new List<string>();
     }
 
     public static class HomeScreenSectionExtensions

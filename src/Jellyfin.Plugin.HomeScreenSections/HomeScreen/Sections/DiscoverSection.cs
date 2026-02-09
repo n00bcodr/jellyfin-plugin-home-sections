@@ -1,7 +1,9 @@
 ﻿using System.Net.Http.Json;
 using Jellyfin.Plugin.HomeScreenSections.Configuration;
+using Jellyfin.Plugin.HomeScreenSections.Helpers;
 using Jellyfin.Plugin.HomeScreenSections.Library;
 using Jellyfin.Plugin.HomeScreenSections.Model.Dto;
+using Jellyfin.Plugin.HomeScreenSections.Services;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.Querying;
@@ -13,6 +15,7 @@ namespace Jellyfin.Plugin.HomeScreenSections.HomeScreen.Sections
     public class DiscoverSection : IHomeScreenSection
     {
         private readonly IUserManager m_userManager;
+        private readonly ImageCacheService m_imageCacheService;
         
         public virtual string? Section => "Discover";
 
@@ -24,9 +27,10 @@ namespace Jellyfin.Plugin.HomeScreenSections.HomeScreen.Sections
 
         protected virtual string JellyseerEndpoint => "/api/v1/discover/trending";
         
-        public DiscoverSection(IUserManager userManager)
+        public DiscoverSection(IUserManager userManager, ImageCacheService imageCacheService)
         {
             m_userManager = userManager;
+            m_imageCacheService = imageCacheService;
         }
         
         public QueryResult<BaseItemDto> GetResults(HomeScreenSectionPayload payload, IQueryCollection queryCollection)
@@ -35,6 +39,10 @@ namespace Jellyfin.Plugin.HomeScreenSections.HomeScreen.Sections
             
             // TODO: Get Jellyseerr Url
             string? jellyseerrUrl = HomeScreenSectionsPlugin.Instance.Configuration.JellyseerrUrl;
+            string? jellyseerrExternalUrl = HomeScreenSectionsPlugin.Instance.Configuration.JellyseerrExternalUrl;
+            
+            // Use external URL for frontend links if configured, otherwise fall back to internal URL
+            string? jellyseerrDisplayUrl = !string.IsNullOrEmpty(jellyseerrExternalUrl) ? jellyseerrExternalUrl : jellyseerrUrl;
 
             if (string.IsNullOrEmpty(jellyseerrUrl))
             {
@@ -82,6 +90,17 @@ namespace Jellyfin.Plugin.HomeScreenSections.HomeScreen.Sections
                             
                             if (item.Value<JObject>("mediaInfo") == null)
                             {
+                                string dateTimeString = item.Value<string>("firstAirDate") ??
+                                                        item.Value<string>("releaseDate") ?? "1970-01-01";
+                                
+                                if (string.IsNullOrWhiteSpace(dateTimeString))
+                                {
+                                    dateTimeString = "1970-01-01";
+                                }
+                                
+                                string posterPath = item.Value<string>("posterPath") ?? "404";
+                                string cachedImageUrl = GetCachedImageUrl($"https://image.tmdb.org/t/p/w600_and_h900_bestv2{posterPath}");
+                                
                                 returnItems.Add(new BaseItemDto()
                                 {
                                     Name = item.Value<string>("title") ?? item.Value<string>("name"),
@@ -89,11 +108,11 @@ namespace Jellyfin.Plugin.HomeScreenSections.HomeScreen.Sections
                                     SourceType = item.Value<string>("mediaType"),
                                     ProviderIds = new Dictionary<string, string>()
                                     {
-                                        { "JellyseerrRoot", jellyseerrUrl },
+                                        { "JellyseerrRoot", jellyseerrDisplayUrl },
                                         { "Jellyseerr", item.Value<int>("id").ToString() },
-                                        { "JellyseerrPoster", item.Value<string>("posterPath") ?? "404" }
+                                        { "JellyseerrPoster", cachedImageUrl }
                                     },
-                                    PremiereDate = DateTime.Parse(item.Value<string>("firstAirDate") ?? item.Value<string>("releaseDate") ?? "1970-01-01")
+                                    PremiereDate = DateTime.Parse(dateTimeString)
                                 });
                             }
                         }
@@ -110,9 +129,14 @@ namespace Jellyfin.Plugin.HomeScreenSections.HomeScreen.Sections
             };
         }
 
-        public IHomeScreenSection CreateInstance(Guid? userId, IEnumerable<IHomeScreenSection>? otherInstances = null)
+        protected string GetCachedImageUrl(string sourceUrl)
         {
-            return this;
+            return ImageCacheHelper.GetCachedImageUrl(m_imageCacheService, sourceUrl);
+        }
+
+        public IEnumerable<IHomeScreenSection> CreateInstances(Guid? userId, int instanceCount)
+        {
+            yield return this;
         }
 
         public HomeScreenSectionInfo GetInfo()

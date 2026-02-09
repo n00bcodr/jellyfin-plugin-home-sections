@@ -1,6 +1,7 @@
 using Jellyfin.Plugin.HomeScreenSections.Configuration;
 using MediaBrowser.Controller.Dto;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.Entities;
 
 namespace Jellyfin.Plugin.HomeScreenSections.HomeScreen.Sections.RecentlyAdded
 {
@@ -17,6 +18,8 @@ namespace Jellyfin.Plugin.HomeScreenSections.HomeScreen.Sections.RecentlyAdded
         protected override BaseItemKind SectionItemKind => BaseItemKind.Book;
 
         protected override CollectionType CollectionType => CollectionType.books;
+        
+        protected override CollectionTypeOptions CollectionTypeOptions => CollectionTypeOptions.books;
 
         protected override string? LibraryId => HomeScreenSectionsPlugin.Instance?.Configuration?.DefaultBooksLibraryId;
 
@@ -25,7 +28,8 @@ namespace Jellyfin.Plugin.HomeScreenSections.HomeScreen.Sections.RecentlyAdded
         public RecentlyAddedBooksSection(IUserViewManager userViewManager,
             IUserManager userManager,
             ILibraryManager libraryManager,
-            IDtoService dtoService) : base(userViewManager, userManager, libraryManager, dtoService)
+            IDtoService dtoService,
+            IServiceProvider serviceProvider) : base(userViewManager, userManager, libraryManager, dtoService, serviceProvider)
         {
         }
     }

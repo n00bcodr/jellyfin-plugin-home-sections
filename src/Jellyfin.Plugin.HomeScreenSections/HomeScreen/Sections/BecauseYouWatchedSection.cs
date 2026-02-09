@@ -1,6 +1,7 @@
 ﻿using System.Diagnostics;
 using Jellyfin.Extensions;
 using Jellyfin.Plugin.HomeScreenSections.Configuration;
+using Jellyfin.Plugin.HomeScreenSections.Helpers;
 using Jellyfin.Plugin.HomeScreenSections.JellyfinVersionSpecific;
 using Jellyfin.Plugin.HomeScreenSections.Library;
 using Jellyfin.Plugin.HomeScreenSections.Model.Dto;
@@ -30,6 +31,8 @@ namespace Jellyfin.Plugin.HomeScreenSections.HomeScreen.Sections
 		public string? AdditionalData { get; set; }
 
 		public object? OriginalPayload => null;
+
+		public TranslationMetadata? TranslationMetadata { get; private set; }
 		
 		private IUserDataManager UserDataManager { get; set; }
 		private IUserManager UserManager { get; set; }
@@ -49,13 +52,11 @@ namespace Jellyfin.Plugin.HomeScreenSections.HomeScreen.Sections
 			CollectionManagerProxy = collectionProxy;
 		}
 
-		public IHomeScreenSection CreateInstance(Guid? userId, IEnumerable<IHomeScreenSection>? otherInstances = null)
+		public IEnumerable<IHomeScreenSection> CreateInstances(Guid? userId, int instanceCount)
 		{
 			User? user = userId is null || userId.Value.Equals(default)
 				? null
 				: UserManager.GetUserById(userId.Value);
-
-			BecauseYouWatchedSection section = new BecauseYouWatchedSection(UserDataManager, UserManager, LibraryManager, DtoService, CollectionManager, CollectionManagerProxy);
 
 			DtoOptions? dtoOptions = new DtoOptions 
 			{ 
@@ -68,59 +69,76 @@ namespace Jellyfin.Plugin.HomeScreenSections.HomeScreen.Sections
 
 			VirtualFolderInfo[] folders = LibraryManager.GetVirtualFolders()
 				.Where(x => x.CollectionType == CollectionTypeOptions.movies)
-				.ToArray();
+				.FilterToUserPermitted(LibraryManager, user);
 
-			IEnumerable<BaseItem>? recentlyPlayedMovies = folders.SelectMany(x =>
+			List<BaseItem>? recentlyPlayedMovies = folders.SelectMany(x =>
 			{
-				InternalItemsQuery? query = new InternalItemsQuery(user)
+				var item = LibraryManager.GetParentItem(Guid.Parse(x.ItemId), user?.Id);
+
+				if (item is not Folder folder)
+				{
+					folder = LibraryManager.GetUserRootFolder();
+				}
+
+				return folder.GetItems(new InternalItemsQuery(user)
 				{
 					IncludeItemTypes = new[]
 					{
 						BaseItemKind.Movie
 					},
 					OrderBy = new[] { (ItemSortBy.DatePlayed, SortOrder.Descending), (ItemSortBy.Random, SortOrder.Descending) },
-					Limit = 7,
-					ParentId = Guid.Parse(x.ItemId),
+					Limit = 15,
+					ParentId = Guid.Parse(x.ItemId ?? Guid.Empty.ToString()),
 					Recursive = true,
 					IsPlayed = true,
 					DtoOptions = dtoOptions
-				};
-
-				return LibraryManager.GetItemList(query);
-			});
+				}).Items;
+			}).ToList();
 			
-			recentlyPlayedMovies = recentlyPlayedMovies.Where(x => !otherInstances?.Select(y => y.AdditionalData).Contains(x.Id.ToString()) ?? true).Where(x =>
+			recentlyPlayedMovies.Shuffle();
+			
+			List<BaseItem> pickedMovies = new List<BaseItem>();
+
+			Queue<BaseItem> queue = new Queue<BaseItem>(recentlyPlayedMovies);
+			while (pickedMovies.Count < instanceCount && queue.Count > 0)
 			{
+				BaseItem elementToConsider = queue.Dequeue();
+				
 				if (user != null)
 				{
-					IEnumerable<BoxSet>? collections = CollectionManagerProxy.GetCollections(user)
-						.Where(y => y.GetChildren(user, true, null).OfType<Movie>().Contains(x as Movie));
+					var collections = CollectionManagerProxy.GetCollections(user)
+						.Select(y => (y, y.GetChildren(user, true, null)))
+						.Where(y => y.Item2
+							.OfType<Movie>().Contains(elementToConsider as Movie));
 
-					foreach (BoxSet? collection in collections)
+					bool isPicked = false;
+					foreach ((BoxSet Item, IEnumerable<BaseItem> Children) collection in collections)
 					{
-						if (collection.GetChildren(user, true, null).OfType<Movie>().Any(y => otherInstances?.Select(z => z.AdditionalData).Contains(y.Id.ToString()) ?? true))
+						if (collection.Children.OfType<Movie>().Any(y => pickedMovies?.Select(z => z.Id).Contains(y.Id) ?? true))
 						{
-							return false;
+							isPicked = true;
+							break;
 						}
+					}
+
+					if (isPicked)
+					{
+						continue;
 					}
 				}
 
-				return true;
-			}).ToList();
-
-			Random rnd = new Random();
-
-			if (recentlyPlayedMovies.Count() == 0)
-			{
-				return null!;
+				pickedMovies.Add(elementToConsider);
+				yield return new BecauseYouWatchedSection(UserDataManager, UserManager, LibraryManager, DtoService, CollectionManager, CollectionManagerProxy)
+				{
+					AdditionalData = elementToConsider.Id.ToString(),
+					DisplayText = "Because You Watched " + elementToConsider.Name,
+					TranslationMetadata = new TranslationMetadata()
+					{
+						Type = TranslationType.Pattern,
+						AdditionalContent = elementToConsider.Name
+					}
+				};
 			}
-
-			BaseItem item = recentlyPlayedMovies.ElementAt(rnd.Next(0, recentlyPlayedMovies.Count()));
-
-			section.AdditionalData = item.Id.ToString();
-			section.DisplayText = "Because You Watched " + item.Name;
-
-			return section;
 		}
 
 		public QueryResult<BaseItemDto> GetResults(HomeScreenSectionPayload payload, IQueryCollection queryCollection)
@@ -153,11 +171,18 @@ namespace Jellyfin.Plugin.HomeScreenSections.HomeScreen.Sections
 
             VirtualFolderInfo[] folders = LibraryManager.GetVirtualFolders()
 	            .Where(x => x.CollectionType == CollectionTypeOptions.movies)
-	            .ToArray();
+	            .FilterToUserPermitted(LibraryManager, user);
             
             IList<BaseItem>? similar = folders.SelectMany(x =>
             {
-	            var items = LibraryManager.GetItemList(new InternalItemsQuery
+	            var item = LibraryManager.GetParentItem(Guid.Parse(x.ItemId), user?.Id);
+
+	            if (item is not Folder folder)
+	            {
+		            folder = LibraryManager.GetUserRootFolder();
+	            }
+
+	            return folder.GetItems(new InternalItemsQuery(user)
 	            {
 		            IncludeItemTypes = new[]
 		            {
@@ -169,10 +194,8 @@ namespace Jellyfin.Plugin.HomeScreenSections.HomeScreen.Sections
 		            DtoOptions = dtoOptions,
 		            Limit = 24,
 		            Recursive = true,
-		            ParentId = Guid.Parse(x.ItemId)
-	            }.ApplySimilarSettings(item));
-
-	            return items;
+		            ParentId = Guid.Parse(x.ItemId ?? Guid.Empty.ToString()),
+	            }.ApplySimilarSettings(item)).Items;
             }).ToList();
             
             similar.Shuffle();

@@ -39,19 +39,22 @@ namespace Jellyfin.Plugin.HomeScreenSections.Controllers
         private readonly IServerApplicationHost m_serverApplicationHost;
         private readonly IApplicationPaths m_applicationPaths;
         private readonly HomeScreenSectionService m_homeScreenSectionService;
+        private readonly ImageCacheService m_imageCacheService;
 
         public HomeScreenController(
             IHomeScreenManager homeScreenManager,
             IDisplayPreferencesManager displayPreferencesManager,
             IServerApplicationHost serverApplicationHost, 
             IApplicationPaths applicationPaths,
-            HomeScreenSectionService homeScreenSectionService)
+            HomeScreenSectionService homeScreenSectionService,
+            ImageCacheService imageCacheService)
         {
             m_homeScreenManager = homeScreenManager;
             m_displayPreferencesManager = displayPreferencesManager;
             m_serverApplicationHost = serverApplicationHost;
             m_applicationPaths = applicationPaths;
             m_homeScreenSectionService = homeScreenSectionService;
+            m_imageCacheService = imageCacheService;
         }
 
         /// <summary>
@@ -138,6 +141,53 @@ namespace Jellyfin.Plugin.HomeScreenSections.Controllers
             }
         }
 
+        [HttpGet("CachedImage/{cacheKey}")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public ActionResult GetCachedImage([FromRoute] string cacheKey)
+        {
+            (byte[]? data, string? contentType) = m_imageCacheService.GetCachedImage(cacheKey);
+            var config = HomeScreenSectionsPlugin.Instance.Configuration;
+
+            if (data == null || contentType == null)
+            {
+                return NotFound();
+            }
+            if (config.DeveloperMode)
+            {
+                Response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
+            }
+            else
+            {
+                Response.Headers.CacheControl = $"public, max-age={config.CacheTimeoutSeconds}";
+            }
+            return File(data, contentType);
+        }
+
+        [HttpPost("ClearImageCache")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [Authorize(Roles = "Administrator")]
+        public ActionResult ClearImageCache([FromQuery] bool clearAll = false)
+        {
+            try
+            {
+                if (clearAll)
+                {
+                    m_imageCacheService.ClearAllCache();
+                    return Ok(new { message = "All cached images cleared" });
+                }
+                else
+                {
+                    m_imageCacheService.ClearExpiredCache();
+                    return Ok(new { message = "Expired cached images cleared" });
+                }
+            }
+            catch (Exception ex)
+            {
+                return BadRequest($"Error clearing image cache: {ex.Message}");
+            }
+        }
+
         [HttpGet("Meta")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [Authorize]
@@ -149,7 +199,13 @@ namespace Jellyfin.Plugin.HomeScreenSections.Controllers
                 return Ok(new { Enabled = false, AllowUserOverride = false });
             }
 
-            return Ok(new { Enabled = cfg.Enabled, AllowUserOverride = cfg.AllowUserOverride });
+            return Ok(new
+            {
+                Enabled = cfg.Enabled, 
+                AllowUserOverride = cfg.AllowUserOverride, 
+                PaginationEnabled = cfg.LazyLoadEnabled, 
+                NumResultsPerPage = cfg.NumSectionsPerPage
+            });
         }
 
         [HttpGet("Ready")]
@@ -186,9 +242,13 @@ namespace Jellyfin.Plugin.HomeScreenSections.Controllers
         [Authorize]
         public ActionResult<QueryResult<HomeScreenSectionInfo>> GetHomeScreenSections(
             [FromQuery] Guid? userId,
-            [FromQuery] string? language)
+            [FromQuery] string? language,
+            [FromQuery] int? page = null,
+            [FromQuery] int? numResultsPerPage = null,
+            [FromQuery] Guid? pageHash = null)
         {
-            List<HomeScreenSectionInfo> sections = m_homeScreenSectionService.GetSectionsForUser(userId ?? Guid.Empty, language);
+            List<HomeScreenSectionInfo> sections = m_homeScreenSectionService.MonitorLiveUpdatedSectionsForUser(userId ?? Guid.Empty, language, 
+                page ?? 1, numResultsPerPage, pageHash) ?? new List<HomeScreenSectionInfo>();
 
             return new QueryResult<HomeScreenSectionInfo>(
                 0,

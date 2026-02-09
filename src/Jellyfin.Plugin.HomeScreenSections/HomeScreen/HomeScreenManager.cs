@@ -2,6 +2,7 @@ using System.Diagnostics;
 using Jellyfin.Plugin.HomeScreenSections.Configuration;
 using Jellyfin.Plugin.HomeScreenSections.HomeScreen.Sections;
 using Jellyfin.Plugin.HomeScreenSections.HomeScreen.Sections.Latest;
+using Jellyfin.Plugin.HomeScreenSections.HomeScreen.Sections.Persons;
 using Jellyfin.Plugin.HomeScreenSections.HomeScreen.Sections.RecentlyAdded;
 using Jellyfin.Plugin.HomeScreenSections.HomeScreen.Sections.Upcoming;
 using Jellyfin.Plugin.HomeScreenSections.Library;
@@ -47,10 +48,15 @@ namespace Jellyfin.Plugin.HomeScreenSections.HomeScreen
             {
                 m_userFeatureEnabledStates = JsonConvert.DeserializeObject<Dictionary<Guid, bool>>(File.ReadAllText(userFeatureEnabledPath)) ?? new Dictionary<Guid, bool>();
             }
-
+        }
+        
+        public void RegisterBuiltInResultsDelegates()
+        {
             RegisterResultsDelegate<MyMediaSection>();
+            
             RegisterResultsDelegate<ContinueWatchingSection>();
             RegisterResultsDelegate<NextUpSection>();
+            RegisterResultsDelegate<ContinueWatchingNextUpSection>();
             
             RegisterResultsDelegate<RecentlyAddedMoviesSection>();
             RegisterResultsDelegate<RecentlyAddedShowsSection>();
@@ -82,7 +88,12 @@ namespace Jellyfin.Plugin.HomeScreenSections.HomeScreen
             RegisterResultsDelegate<UpcomingBooksSection>();
             
             RegisterResultsDelegate<GenreSection>();
+            RegisterResultsDelegate<MyRequestsSection>();
+            
             // Removed from public access while its still in dev.
+            //RegisterResultsDelegate<DirectedBySection>();
+            //RegisterResultsDelegate<StarringSection>();
+            
             //RegisterResultsDelegate<TopTenSection>();
         }
 
@@ -90,6 +101,11 @@ namespace Jellyfin.Plugin.HomeScreenSections.HomeScreen
         public IEnumerable<IHomeScreenSection> GetSectionTypes()
         {
             return m_delegates.Values;
+        }
+
+        public IHomeScreenSection? GetSection(string sectionName)
+        {
+            return m_delegates.GetValueOrDefault(sectionName);
         }
 
         /// <inheritdoc/>
@@ -169,9 +185,16 @@ namespace Jellyfin.Plugin.HomeScreenSections.HomeScreen
         {
             string pluginSettings = Path.Combine(m_applicationPaths.PluginConfigurationsPath, typeof(HomeScreenSectionsPlugin).Namespace!, c_settingsFile);
 
+            IEnumerable<SectionSettings> adminLockedSections =
+                HomeScreenSectionsPlugin.Instance.Configuration.SectionSettings.Where(x => !x.AllowUserOverride);
+            IEnumerable<SectionSettings> defaultEnabledSections =
+                HomeScreenSectionsPlugin.Instance.Configuration.SectionSettings.Where(x => x.Enabled);
+            
             ModularHomeUserSettings? settings = new ModularHomeUserSettings
             {
-                UserId = userId
+                UserId = userId,
+                LockedSections = adminLockedSections.Select(x => x.SectionId).ToList(),
+                DefaultEnabledSections = defaultEnabledSections.Select(x => x.SectionId).ToList()
             };
             if (File.Exists(pluginSettings))
             {

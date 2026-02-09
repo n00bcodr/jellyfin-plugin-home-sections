@@ -1,6 +1,7 @@
 ﻿using Jellyfin.Plugin.HomeScreenSections.Configuration;
 using MediaBrowser.Controller.Dto;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.Entities;
 
 namespace Jellyfin.Plugin.HomeScreenSections.HomeScreen.Sections.RecentlyAdded
 {
@@ -19,11 +20,17 @@ namespace Jellyfin.Plugin.HomeScreenSections.HomeScreen.Sections.RecentlyAdded
         
         protected override CollectionType CollectionType => CollectionType.musicvideos;
         
+        protected override CollectionTypeOptions CollectionTypeOptions => CollectionTypeOptions.musicvideos;
+        
         protected override string? LibraryId => HomeScreenSectionsPlugin.Instance?.Configuration?.DefaultMusicVideosLibraryId;
         
         protected override SectionViewMode DefaultViewMode => SectionViewMode.Landscape;
         
-        public RecentlyAddedMusicVideosSection(IUserViewManager userViewManager, IUserManager userManager, ILibraryManager libraryManager, IDtoService dtoService) : base(userViewManager, userManager, libraryManager, dtoService)
+        public RecentlyAddedMusicVideosSection(IUserViewManager userViewManager, 
+            IUserManager userManager, 
+            ILibraryManager libraryManager, 
+            IDtoService dtoService,
+            IServiceProvider serviceProvider) : base(userViewManager, userManager, libraryManager, dtoService, serviceProvider)
         {
         }
     }
