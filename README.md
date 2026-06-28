@@ -155,7 +155,11 @@ You're more than welcome to contribute to this plugin in any way that betters it
 - Please at least check the plugin compiles with 10.10.7 and the latest version of JF
 - Please put braces on new lines and use them even for 1 line statements
 
+As a general rule of thumb, please try to blend in with the codebase, I use a mutated hungarian notation for my coding style, I will ask for this to be followed.
+
 After following these guidelines, please create a pull request and I'll review it as soon as I can. For more complex changes, I may ask you to rebase to the `experimental` branch to give it extra testing before it gets merged across.
+
+Please declare your AI usage, if any, and if you have used AI for your change, please also declare your coding experience without AI. This won't impact whether the change is merged, it will allow me to properly and correctly review the change to ensure that nothing slips through the net.
 
 ### Adding your own sections
 > This is great an' all but I want a section that doesn't exist here. Can I make one?
